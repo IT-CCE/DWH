@@ -257,6 +257,7 @@ class DWH:
         insert_rows = insert_rows.fillna(np.nan).replace([np.nan], [None])
 
         values_change_table = pd.DataFrame(values_change_table, columns=change_db_cols)
+        values_change_table = values_change_table.fillna(np.nan).replace([np.nan], [None])
 
         return values_change_table, insert_rows, update_rows
 
@@ -418,16 +419,16 @@ class DWH:
                     f"Exception type: {ex_type}\nException value: {ex_value}")
 
         if hasattr(self, 'new_rows'):
-            self.new_rows.to_csv(folder + "\\new_rows.csv", header=True)
+            self.new_rows.to_csv(folder + "\\new_rows.csv", header=True, na_rep="None", encoding='utf-8')
         if hasattr(self, 'scd2_vals'):
-            self.scd2_vals.to_csv(folder + "\\scd2_vals.csv", header=True)
+            self.scd2_vals.to_csv(folder + "\\scd2_vals.csv", header=True, na_rep="None", encoding='utf-8')
         if hasattr(self, 'updates_rows'):
             df_update_rows = pd.DataFrame(self.updates_rows)
-            df_update_rows.to_csv(folder + "\\updates.csv", header=True)
+            df_update_rows.to_csv(folder + "\\updates.csv", header=True, na_rep="None", encoding='utf-8')
         if hasattr(self, 'df_dwh'):
-            self.df_dwh.to_csv(folder + "\\df_dwh.csv", header=True)
+            self.df_dwh.to_csv(folder + "\\df_dwh.csv", header=True, na_rep="None", encoding='utf-8')
         if hasattr(self, 'df_source'):
-            self.df_source.to_csv(folder + "\\df_source.csv", header=True)
+            self.df_source.to_csv(folder + "\\df_source.csv", header=True, na_rep="None", encoding='utf-8')
 
     def execute_source_dwh(self):
         """
@@ -463,6 +464,7 @@ class DWH:
                                                    'SOURCE_DATABASE'])  # connect to source database
 
             source_select_query = self.read_query(query_type='SOURCE_QUERY')
+
             self.df_source = self.select_from_db(select_query=source_select_query,
                                                  engine=source_engine)  # execute query on source
             self.df_source = self.df_source.fillna(np.nan).replace([np.nan], [None])  # replace np.nan with python None
