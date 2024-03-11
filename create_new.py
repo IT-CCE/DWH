@@ -14,6 +14,8 @@ from sqlalchemy import URL, create_engine
 from sqlalchemy.exc import ProgrammingError
 import subprocess
 from dwh_lib import DWH
+from db_new import main
+
 
 class TK_GUI():
     def dest_table(self, select_query: str):
@@ -572,7 +574,7 @@ class TK_GUI():
         table_name = self.dest_table(self.query_json['DWH_QUERY']['CREATE'])
         query = f'ALTER TABLE {table_name} ADD '
         for i, (col,val) in enumerate(zip(self.new_cols,self.fill_values)):
-            if 'nvarchar' in self.columns_json[col] or 'datetime' in self.columns_json[col]:
+            if 'nvarchar' in self.columns_json[col] or 'date' in self.columns_json[col]:
                 query += f'[{col}] {self.columns_json[col]} DEFAULT \'{val.get()}\' WITH VALUES'
             elif ('int' in self.columns_json[col] or 'decimal' in self.columns_json[col] or\
                  'money' in self.columns_json[col] or 'bit' in self.columns_json[col] or 'numeric' in self.columns_json[col]):
@@ -618,9 +620,9 @@ class TK_GUI():
                     done = False
 
             if done and len(self.new_cols) > 0:
-                process = subprocess.Popen(r"python C:\Python_DWH\Python_Files\db_new.py"+f" {self.folder_selected}")
-                # process = subprocess.Popen(r"python U:\DB\db.py" + f" {self.folder_selected}")
-                process.wait()
+                if self.config_json['MODE'] == 'SCD':
+                    main(["C:\\Python_DWH\\Python_Files\\db_new.py",self.folder_selected])
+                    #main(["U:\\Python_Files\\db_new.py",self.folder_selected])
                 self.add_column_to_files()
 
                 e, add_query = self.add_col_to_database()
@@ -631,9 +633,21 @@ class TK_GUI():
 
 
             if done:
-                #process = subprocess.Popen(r"python U:\DB\db.py" + f" {self.folder_selected}")
-                process = subprocess.Popen(r"python C:\Python_DWH\Python_Files\db_new.py"+f" {self.folder_selected}")
-                process.wait()
+                df_job = self.connect_to_db(server=self.config_json['DWH_SERVER'],
+                                            username=self.config_json['DWH_USERNAME'],
+                                            password=self.config_json['DWH_PASSWORD'],
+                                            database=self.config_json['DWH_DATABASE'],
+                                            return_val=True,
+                                            job=True,
+                                            query=f"SELECT * FROM [{self.config_json['DWH_DATABASE']}].[job].[job_table]")
+
+                if df_job[df_job['name']==self.config_json['JOB_NAME']]['timestamp'].max().date()!=datetime.datetime.now().date():
+                    if self.config_json['MODE'] == 'SCD':
+                        main(["C:\\Python_DWH\\Python_Files\\db_new.py", self.folder_selected])
+                        #main(["U:\\Python_Files\\db_new.py", self.folder_selected])
+                    else:
+                        main(["C:\\Python_DWH\\Python_Files\\db_new.py", self.folder_selected, False])
+                        #main(["U:\\Python_Files\\db_new.py", self.folder_selected, False])
                 messagebox.showinfo("Info", "Files and Database successfully altered")
                 self.window1.quit()
 
@@ -642,28 +656,25 @@ class TK_GUI():
     def compare_dfs(self):
 
         self.source_query_new = self.new_query_entry.get("1.0", tk.END)
-        correct_query = True
-        try:
-            self.df_new = self.connect_to_db(self.config_json['SOURCE_SERVER'],
+        self.df_new = self.connect_to_db(self.config_json['SOURCE_SERVER'],
                                              self.config_json['SOURCE_USERNAME'],
                                              self.config_json['SOURCE_PASSWORD'],
                                              self.config_json['SOURCE_DATABASE'],
                                              self.source_query_new, True, True)
 
-            self.df_old = self.connect_to_db(self.config_json['SOURCE_SERVER'],
-                                             self.config_json['SOURCE_USERNAME'],
-                                             self.config_json['SOURCE_PASSWORD'],
-                                             self.config_json['SOURCE_DATABASE'],
-                                             self.source_query_old, True, True)
-        except ProgrammingError as e:
-            correct_query = False
-            messagebox.showerror("Error", f"Query {self.source_query_old} raise the following error {str(e)}")
-
-        if correct_query:
+        self.df_old = self.connect_to_db(self.config_json['SOURCE_SERVER'],
+                                         self.config_json['SOURCE_USERNAME'],
+                                         self.config_json['SOURCE_PASSWORD'],
+                                         self.config_json['SOURCE_DATABASE'],
+                                         self.source_query_old, True, True)
+        if isinstance(self.df_new, Exception):
+            messagebox.showerror("Error", f"Error with new Query: {str(self.df_new.orig)}")
+        else:
             df_new_col_set = set(self.df_new.columns)
             df_old_col_set = set(self.df_old.columns)
             self.new_cols = list(df_new_col_set.difference(df_old_col_set))
             self.delete_columns = list(df_old_col_set.difference(df_new_col_set))
+
             if df_old_col_set == df_new_col_set:
                 messagebox.showerror("Error", "Columns of specified queries are the same")
             else:
@@ -720,8 +731,6 @@ class TK_GUI():
                 self.alter_button1.place(relx=0.5, rely=0.9, anchor=tk.CENTER)
 
 
-        else:
-            messagebox.showerror("Error", f"No or more than one *.json in {self.folder_selected} found")
 
     def switch_to(self, prod):
 
