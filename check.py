@@ -138,12 +138,18 @@ if __name__ == '__main__':
                                    database=config_json['DWH_DATABASE'])
         dwh_select_query, dwh_create_query = read_query(query_dict=query_json['DWH_QUERY'])
         table_names = select_from_db("""SELECT TABLE_SCHEMA,TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';""",dwh_engine)
-        table_names = table_names[(table_names['TABLE_SCHEMA']!='dbo') & (table_names['TABLE_SCHEMA']!='job')& (table_names['TABLE_SCHEMA']!='changes')& (table_names['TABLE_SCHEMA']!='stock')]
+        table_names = table_names[(table_names['TABLE_SCHEMA']!='dbo') & (table_names['TABLE_SCHEMA']!='job')& (table_names['TABLE_SCHEMA']!='changes')& (table_names['TABLE_SCHEMA']!='stock') & (table_names['TABLE_SCHEMA']!='billing')]
         table_names = table_names[(table_names['TABLE_NAME']!='plant_data')]
         for i,(db_schema,db_name) in table_names.iterrows():
+
+
+
             df = select_from_db(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}]", dwh_engine)
             pks = table_names = select_from_db(f"""SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE OBJECTPROPERTY(OBJECT_ID(CONSTRAINT_SCHEMA + '.' + CONSTRAINT_NAME), 'IsPrimaryKey') = 1 AND TABLE_NAME = '{db_name}';""",dwh_engine)
             pks = pks[pks['COLUMN_NAME'] != 'surkey']
+
+            if db_name == 'customer_overview':
+                pks = pd.concat([pks,pd.DataFrame.from_dict({'COLUMN_NAME':['Auftrag']})],axis=0).reset_index()
             cols = sorted(list(pks['COLUMN_NAME'])+["valid_from","valid_to","timestamp"])
             df = df[cols]
 
