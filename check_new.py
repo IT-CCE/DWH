@@ -49,6 +49,8 @@ if __name__ == '__main__':
                  AND TABLE_NAME = '{db_name}';""",
                 dwh_engine)
             pks = pks[pks['COLUMN_NAME'] != 'surkey']
+            if db_name == 'customer_overview':
+                pks = pd.concat([pks, pd.DataFrame.from_dict({'COLUMN_NAME': ['Auftrag']})], axis=0).reset_index()
             cols = sorted(list(pks['COLUMN_NAME']) + ["valid_from", "valid_to", "timestamp"])
             df = df[cols]
             df2 = df2[cols]

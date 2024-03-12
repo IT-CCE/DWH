@@ -12,9 +12,8 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy import URL, create_engine
 from sqlalchemy.exc import ProgrammingError
-import subprocess
-from dwh_lib import DWH
 from db_new import main
+import sys
 
 
 class TK_GUI():
@@ -426,7 +425,7 @@ class TK_GUI():
         self.scd1_alter = []
         self.no_type_alter = []
 
-        datatypes_query = f"""DECLARE @query nvarchar(max) = '{self.source_query_new.replace('\'', '\'\'')}';\nEXEC sp_describe_first_result_set @query, null, 0;"""
+        datatypes_query = f"""DECLARE @query nvarchar(max) = '{self.query_json['SOURCE_QUERY']['SELECT'].replace('\'', '\'\'')}';\nEXEC sp_describe_first_result_set @query, null, 0;"""
         df_datatypes = self.connect_to_db(self.config_json['SOURCE_SERVER'],
                                           self.config_json['SOURCE_USERNAME'],
                                           self.config_json['SOURCE_PASSWORD'],
@@ -606,23 +605,55 @@ class TK_GUI():
                                      f"Attention the QUERY.json, CONFIG.json and COLUMNS.JSON files are going to be overwritten!\n Continue to overwrite?",
                                      icon=tk.messagebox.WARNING)
         if ans:
+            # self.source_query_new_real = self.source_query_new
+            # for repl in [self.source_query_new[self.source_query_new.find(x)-1:self.source_query_new.find(",",self.source_query_new.find(x))+1] for x in self.new_cols]:
+            #     self.source_query_new = self.source_query_new.replace(repl,"")
             self.query_json['SOURCE_QUERY']['SELECT'] = self.source_query_new
 
             done = True
 
             if len(self.delete_columns) > 0:
                 self.remove_column_from_files()
+
+                constraints = self.connect_to_db(server=self.config_json['DWH_SERVER'],
+                                            username=self.config_json['DWH_USERNAME'],
+                                            password=self.config_json['DWH_PASSWORD'],
+                                            database=self.config_json['DWH_DATABASE'],
+                                            return_val=True,
+                                            job=True,
+                                            query="""select con.[name] as constraint_name,
+                                                    schema_name(t.schema_id) + '.' + t.[name]  as [table],
+                                                    col.[name] as column_name,
+                                                    con.[definition]
+                                                from sys.default_constraints con
+                                                left outer join sys.objects t
+                                                on con.parent_object_id = t.object_id
+                                                left outer join sys.all_columns col
+                                                on con.parent_column_id = col.column_id
+                                                and con.parent_object_id = col.object_id
+                                                order by con.name""")
+                table_name = ".".join([x.replace("[","").replace("]","") for x in self.dest_table(self.query_json['DWH_QUERY']['CREATE']).split(".")[1:]])
+                constraints_table = constraints[constraints['table'] == table_name]
+                if len(constraints_table) > 0:
+                    for i,(constraint_name, column) in constraints[constraints['table'] == table_name][['constraint_name', 'column_name']].iterrows():
+                        if column in self.delete_columns:
+                            self.execute_alter(self.config_json['DWH_SERVER'],
+                                               self.config_json['DWH_USERNAME'],
+                                               self.config_json['DWH_PASSWORD'],
+                                               self.config_json['DWH_DATABASE'],
+                                               query=f"ALTER TABLE {self.dest_table(self.query_json['DWH_QUERY']['CREATE'])} DROP CONSTRAINT {constraint_name}")
                 e, del_query = self.remove_col_from_database()
-                #TODO ('42000', "[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]The object 'DF__hr_data__ANP_OMN__095F58DF' is dependent on column 'ANP_OMNES_ABTEILUNG'. (5074) (SQLExecDirectW); [42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]ALTER TABLE DROP COLUMN ANP_OMNES_ABTEILUNG failed because one or more objects access this column. (4922)")
-                #DROP DEFAULT CONSTRAINT
                 if isinstance(e, Exception):
                     messagebox.showerror("Error", f"Database error with query {del_query}")
                     done = False
 
             if done and len(self.new_cols) > 0:
                 if self.config_json['MODE'] == 'SCD':
-                    main(["C:\\Python_DWH\\Python_Files\\db_new.py",self.folder_selected])
-                    #main(["U:\\Python_Files\\db_new.py",self.folder_selected])
+                    if sys.argv[1] == "1":
+                        main(["U:\\Python_Files\\db_new.py", self.folder_selected])
+                    else:
+                        main(["C:\\Python_DWH\\Python_Files\\db_new.py",self.folder_selected])
+                #self.query_json['SOURCE_QUERY']['SELECT'] = self.source_query_new_real
                 self.add_column_to_files()
 
                 e, add_query = self.add_col_to_database()
@@ -633,23 +664,30 @@ class TK_GUI():
 
 
             if done:
-                df_job = self.connect_to_db(server=self.config_json['DWH_SERVER'],
-                                            username=self.config_json['DWH_USERNAME'],
-                                            password=self.config_json['DWH_PASSWORD'],
-                                            database=self.config_json['DWH_DATABASE'],
-                                            return_val=True,
-                                            job=True,
-                                            query=f"SELECT * FROM [{self.config_json['DWH_DATABASE']}].[job].[job_table]")
-
-                if df_job[df_job['name']==self.config_json['JOB_NAME']]['timestamp'].max().date()!=datetime.datetime.now().date():
-                    if self.config_json['MODE'] == 'SCD':
-                        main(["C:\\Python_DWH\\Python_Files\\db_new.py", self.folder_selected])
-                        #main(["U:\\Python_Files\\db_new.py", self.folder_selected])
+                ret = 0
+                if self.config_json['MODE'] == 'SCD':
+                    if sys.argv[1] == "1":
+                        ret = main(["U:\\Python_Files\\db_new.py", self.folder_selected])
                     else:
-                        main(["C:\\Python_DWH\\Python_Files\\db_new.py", self.folder_selected, False])
-                        #main(["U:\\Python_Files\\db_new.py", self.folder_selected, False])
-                messagebox.showinfo("Info", "Files and Database successfully altered")
-                self.window1.quit()
+                        ret = main(["C:\\Python_DWH\\Python_Files\\db_new.py", self.folder_selected])
+                else:
+                    df_job = self.connect_to_db(server=self.config_json['DWH_SERVER'],
+                                                username=self.config_json['DWH_USERNAME'],
+                                                password=self.config_json['DWH_PASSWORD'],
+                                                database=self.config_json['DWH_DATABASE'],
+                                                return_val=True,
+                                                job=True,
+                                                query=f"SELECT * FROM [{self.config_json['DWH_DATABASE']}].[job].[job_table]")
+                    if df_job[df_job['name']==self.config_json['JOB_NAME']]['timestamp'].max().date()!=datetime.datetime.now().date():
+                        if sys.argv[1] == "1":
+                            ret = main(["U:\\Python_Files\\db_new.py", self.folder_selected, False])
+                        else:
+                            ret = main(["C:\\Python_DWH\\Python_Files\\db_new.py", self.folder_selected, False])
+                if ret == 0:
+                    messagebox.showinfo("Info", "Files and Database successfully altered")
+                    self.window1.quit()
+                else:
+                    messagebox.showerror("Error", "An Error occurred")
 
 
 
@@ -711,7 +749,7 @@ class TK_GUI():
                             clicked.set(options[2])
                             l = tk.Label(self.window3, text=f'{self.new_cols[i]}')
                             drop = tk.OptionMenu(self.window3, clicked, *options)
-                            fill_label = tk.Label(self.window3, text=f'Fill Value (Datatype = {df_datatypes[df_datatypes['name']==self.new_cols[i]]['system_type_name'].iloc[0]}\nFor Datetime use YYYY-MM-DD HH:MM:SS)')
+                            fill_label = tk.Label(self.window3, text=f'Fill Value (Datatype = {df_datatypes[df_datatypes['name']==self.new_cols[i]]['system_type_name'].iloc[0]})\nFor Datetime use YYYY-MM-DD HH:MM:SS)\nFor Decimal use .')
                             fill = tk.Entry(self.window3,textvariable=fill_val)
                             l.grid(row=r, column=c, padx=15, pady=15)
                             drop.grid(row=r + 1, column=c, padx=15, pady=15)
