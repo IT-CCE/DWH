@@ -182,7 +182,7 @@ class DWH:
 
         if len(scd) == len(df_source_table) * 2:  # if new column(s) were added
             for i, condition in scd[unique_pk].drop_duplicates().iterrows():
-                all_filters = [scd[x] == y for x, y in zip(condition.index, condition)]
+                all_filters = [scd[x] == y if y is not None else scd[x].isna() for x, y in zip(condition.index, condition)]
                 filter_rows = reduce(lambda x, y: x & y, all_filters)  # go over all old_row,new_row pairs for scd2
                 df_diff = scd.loc[filter_rows]
                 old_entry = df_diff.iloc[-2]
@@ -205,7 +205,8 @@ class DWH:
             if len(scd) > 0:
 
                 for i, condition in scd[unique_pk].drop_duplicates().iterrows():
-                    all_filters = [scd[x] == y for x, y in zip(condition.index, condition)]
+                    #all_filters = [scd[x] == y for x, y in zip(condition.index, condition)]
+                    all_filters = [scd[x] == y if y is not None else scd[x].isna() for x, y in zip(condition.index, condition)]
                     filter_rows = reduce(lambda x, y: x & y, all_filters)  #
                     df_diff = scd.loc[filter_rows]
                     old_entry = df_diff.iloc[-2]
