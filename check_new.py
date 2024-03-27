@@ -10,7 +10,7 @@ import smtplib
 from email.message import EmailMessage
 import pandas as pd
 import json
-
+from sqlalchemy.exc import  ProgrammingError
 
 def clean_jsons(days=14):
     json_files = glob.glob(f"C:\\Python_DWH\\Check_Tables\\json_files\\*.json")
@@ -37,33 +37,36 @@ if __name__ == '__main__':
             """SELECT TABLE_SCHEMA,TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';""",
             dwh_engine)
         table_names = table_names[(table_names['TABLE_SCHEMA'] != 'dbo') & (table_names['TABLE_SCHEMA'] != 'job') & (
-                    table_names['TABLE_SCHEMA'] != 'changes') & (table_names['TABLE_SCHEMA'] != 'stock') & (table_names['TABLE_SCHEMA'] != 'billing')]
-        table_names = table_names[(table_names['TABLE_NAME'] != 'plant_data')]
+                    table_names['TABLE_SCHEMA'] != 'changes')]
         for i, (db_schema, db_name) in table_names.iterrows():
             df = dwh.select_from_db(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}]", dwh_engine)
 
-            df2 = dwh.select_from_db(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}] where [valid_from] is NULL", dwh_engine)
+
             pks = table_names = dwh.select_from_db(
                 f"""SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE
                  OBJECTPROPERTY(OBJECT_ID(CONSTRAINT_SCHEMA + '.' + CONSTRAINT_NAME), 'IsPrimaryKey') = 1 
                  AND TABLE_NAME = '{db_name}';""",
                 dwh_engine)
             pks = pks[pks['COLUMN_NAME'] != 'surkey']
-            if db_name == 'customer_overview':
-                pks = pd.concat([pks, pd.DataFrame.from_dict({'COLUMN_NAME': ['Auftrag']})], axis=0).reset_index()
-            cols = sorted(list(pks['COLUMN_NAME']) + ["valid_from", "valid_to", "timestamp"])
-            df = df[cols]
-            df2 = df2[cols]
 
-            duplicate_rows_df = df[df.duplicated(keep='first')]
-            duplicate_rows_df = pd.concat([df2,duplicate_rows_df])
+            if "valid_from" in pks and "valid_to" in pks and "timestamp" in pks:
+                cols = sorted(list(pks['COLUMN_NAME']) + ["valid_from", "valid_to", "timestamp"])
+                df = df[cols]
+                duplicate_rows_df = df[df.duplicated(keep='first')]
 
-            if len(duplicate_rows_df) > 0:
-                all_errors = []
-                for value in duplicate_rows_df.iterrows():
-                    condition = ' and '.join([f"[{x}]='{y}'" for x, y in zip(list(value[1].index), value[1].tolist())])
-                    all_errors.append(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}] WHERE {condition}")
-                duplicate_rows[db_name] = all_errors
+                df2 = dwh.select_from_db(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}] where [valid_from] is NULL",
+                                         dwh_engine)
+                df2 = df2[cols]
+                duplicate_rows_df = pd.concat([df2,duplicate_rows_df])
+
+
+                if len(duplicate_rows_df) > 0:
+                    all_errors = []
+                    for value in duplicate_rows_df.iterrows():
+                        condition = ' and '.join([f"[{x}]='{y}'" for x, y in zip(list(value[1].index), value[1].tolist())])
+                        all_errors.append(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}] WHERE {condition}")
+                    duplicate_rows[db_name] = all_errors
+
         if len(duplicate_rows) > 0:
             json_object = json.dumps(duplicate_rows, indent=4, ensure_ascii=False)
             with open(f"C:\\Python_DWH\\Check_Tables\\json_files\\update_{timestamp.strftime("%d_%m_%Y")}.json", "w",

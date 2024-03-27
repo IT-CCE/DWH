@@ -100,9 +100,9 @@ class DWH:
                     elif isinstance(entry, np.bool_):
                         entry = bool(entry)
 
-                    if datatype is not None and not (isinstance(entry, datatype_dict[
-                        datatype.split("(")[0] if 'nvarchar' in datatype or 'decimal' in datatype else datatype]) or entry is None):
-                        entry = datatype_dict[datatype.split("(")[0] if 'nvarchar' in datatype or 'decimal' in datatype else datatype](entry)
+                    # if datatype is not None and not (isinstance(entry, datatype_dict[
+                    #     datatype.split("(")[0] if 'nvarchar' in datatype or 'decimal' in datatype else datatype]) or entry is None):
+                    #     entry = datatype_dict[datatype.split("(")[0] if 'nvarchar' in datatype or 'decimal' in datatype else datatype](entry)
 
                     inner_list.append(entry)
                 outer_list.append(inner_list)

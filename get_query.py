@@ -45,10 +45,10 @@ class TK_GUI():
         self.window.destroy()
     def get_button(self,name):
         query_name,query_type = name.split("\n")
-        with open(f"C:\\Python_DWH\Bat\\Queries\\{query_name}_{query_type}.txt","w") as f:
+        with open(f"C:\\Python_DWH\\Bat\\Queries\\{query_name}_{query_type}.txt","w") as f:
             f.write(self.query_json[query_name][query_type])
 
-        messagebox.showinfo("Successful", f"Created File {f"C:\\Python_DWH\Bat\\Queries\\{query_name}_{query_type}.txt"}")
+        messagebox.showinfo("Successful", f"Created File {f"C:\\Python_DWH\\Bat\\Queries\\{query_name}_{query_type}.txt"}")
 
     def __init__(self):
         self.window = tk.Tk()

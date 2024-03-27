@@ -107,6 +107,8 @@ df_license2['LOGIN'] = df_license2['LOGIN'].apply(lambda x: str(x).lower())
 
 
 df_license = pd.merge(df_license, df_license2, how='left', on='LOGIN')
+# check = pd.merge(df_license2, df_license, how='left', on='LOGIN')
+
 ## df_license[list(group_members.keys())] = df_license[list(group_members.keys())].fillna(False)
 ## df_license = df_license[df_license[list(group_members.keys())].any(axis=1)]
 ##
