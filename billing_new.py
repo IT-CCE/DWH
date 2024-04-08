@@ -104,10 +104,12 @@ df_license2.loc[df_license2[df_license2['LOGIN'] == "j.bobee"].index, 'LOGIN'] =
 df_license2.loc[df_license2[df_license2['LOGIN'] == "c.ondraschek"].index, 'LOGIN'] = 'c.mostbauer'
 df_license['LOGIN'] = df_license['LOGIN'].apply(lambda x: str(x).lower())
 df_license2['LOGIN'] = df_license2['LOGIN'].apply(lambda x: str(x).lower())
+df_license2.loc[df_license2[df_license2['LOGIN']=="e.goncha"].index, 'LOGIN'] = 'g.erdogan'
+df_license2.loc[df_license2[df_license2['LOGIN']=="p.guttierez"].index, 'LOGIN'] = 'p.gutierez'
 
 
 df_license = pd.merge(df_license, df_license2, how='left', on='LOGIN')
-# check = pd.merge(df_license2, df_license, how='left', on='LOGIN')
+check = pd.merge(df_license2, df_license, how='left', on='LOGIN')
 
 ## df_license[list(group_members.keys())] = df_license[list(group_members.keys())].fillna(False)
 ## df_license = df_license[df_license[list(group_members.keys())].any(axis=1)]
@@ -136,6 +138,10 @@ df_license_cost = dwh.select_from_db(select_query=f"SELECT * FROM [DWH].[billing
                                       'DWH_DATABASE']))
 
 cols = [x for x in list(df_license.columns) if 'License' in x or 'APplus' in x]
+
+for i,k in df_license_cost[(df_license_cost['type']=='Gruppe') & (df_license_cost['Rate'] > 0)].iterrows():
+    df_license_cost.loc[i,'Rate'] = k['Rate'] / df_license[k['Name']].sum()
+
 def calc_cost(x):
     all_entries = df_license_cost[df_license_cost['Name'].isin(x[cols].index[x[cols] == True])]
     all_entries['is_valid'] = all_entries['valid_to'].apply(lambda x: x>=timestamp)
@@ -194,6 +200,9 @@ def get_model_type(type_str):
 
 all_models = [x['name'] for x in requests.get("https://download.lenovo.com/bsco/public/allModels.json").json()]
 
+all_devices = all_devices[all_devices['displayName'].str.contains("NB")]
+
+
 all_devices['systemLabels']=all_devices['model'].apply(lambda x: get_model_type(x))
 
 
@@ -238,7 +247,7 @@ df_infrastructure = df_infrastructure.fillna(np.nan).replace([np.nan], [None])
 dwh_infra.execute_plain_insert_source(df_infrastructure)
 
 ################################################### Infra #############################################################
-
+print("DONE")
 
 
 

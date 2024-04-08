@@ -286,7 +286,7 @@ class DWH:
         conn.close()
 
     def insert_into_db(self, destination_table: str, df_insert: pd.DataFrame, engine: sqlalchemy.Engine,
-                       first_insert=True, add_time_cols=True, mode=1) -> None:
+                       first_insert=False, add_time_cols=True, mode=1) -> None:
         """
         Function to insert entries in the format: INSERT INTO [DB] (COLUMN1, COLUMN2,..) VALUES (?,?,..)
         :param mode:

@@ -2,7 +2,7 @@ import json
 import sys
 
 from dwh_lib import DWH
-from datetime import datetime
+from datetime import datetime,timedelta
 from glob import glob
 import os
 import subprocess
@@ -29,6 +29,6 @@ if __name__ == '__main__':
                 exit_code = subprocess.call(args['Executable'] + " " +args['Arguments'])
             elif args['Trigger'] == 'First of Month' and today.day == 1:
                 exit_code = subprocess.call(args['Executable'] + " " + args['Arguments'])
-            elif args['Trigger'] == 'Stock' and today.weekday() == 6 or today.day == calendar.monthrange(today.year, today.month)[1]:
+            elif args['Trigger'] == 'Stock' and (today.weekday() == 6 or today.day == calendar.monthrange(today.year, today.month)[1]):
                 exit_code = subprocess.call(args['Executable'] + " " + args['Arguments'])
 

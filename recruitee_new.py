@@ -9,6 +9,46 @@ import requests
 
 from dwh_lib import DWH
 
+
+
+def get_data(url, mode=1):
+    if mode==1:
+        json_dicts = []
+        dict_length = 1
+        page_nr = 1
+        while dict_length > 0:
+            url = url+f"?limit=500&page={page_nr}"
+
+            headers = {
+                "accept": "application/json",
+                "authorization": dwh.config_json['TOKEN']
+            }
+
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                response = response.json()
+                if len(response['hits']) > 0:
+                    dict_length = len(response['hits'])
+                    json_dicts.append(response)
+                else:
+                    dict_length = 0
+            page_nr += 1
+
+        all_data = []
+        for dictionary in json_dicts:
+            all_data.extend(dictionary['hits'])
+    else:
+        headers = {
+            "accept": "application/json",
+            "authorization": dwh.config_json['TOKEN']
+        }
+
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            all_data = response.json()
+
+    return all_data
+
 if __name__ == '__main__':
     try:
         start_time = time.time()
@@ -17,28 +57,13 @@ if __name__ == '__main__':
         dwh_engine = dwh.connect_to_db(server=dwh.config_json['DWH_SERVER'], username=dwh.config_json['DWH_USERNAME'],
                                        password=dwh.config_json['DWH_PASSWORD'],
                                        database=dwh.config_json['DWH_DATABASE'])
+        json_dicts = []
+        dict_length = 1
+        i = 1
+        all_hits = get_data("https://api.recruitee.com/c/78057/search/new/candidates")
+        all_notes = get_data("https://api.recruitee.com/c/78057/search/new/notes")
 
-        url = "https://api.recruitee.com/c/78057/search/new/candidates?limit=10000&page=1&sort_by=created_at_desc"
 
-        headers = {
-            "accept": "application/json",
-            "authorization": dwh.config_json['TOKEN']
-        }
-
-        response = requests.get(url, headers=headers)
-
-        response = response.json()
-
-        url2 = "https://api.recruitee.com/c/78057/search/new/notes?limit=1000&page=1&sort_by=created_at_desc"
-
-        headers2 = {
-            "accept": "application/json",
-            "authorization": dwh.config_json['TOKEN']
-        }
-
-        response2 = requests.get(url2, headers=headers2)
-
-        response2 = response2.json()
 
         # url3 = "https://api.recruitee.com/c/78057/custom_fields/candidates/66053841/fields"
         #
@@ -64,12 +89,13 @@ if __name__ == '__main__':
                 'stage_name', 'source_name',
                 'source_id', 'tag_name', 'tag_id', 'talent_pool', 'report_notes']
 
-        for i, hit in enumerate(response['hits']):
+        for i, hit in enumerate(all_hits):
             applicant = []
             applicant.extend([hit['created_at'], hit['admin_id'], ", ".join(hit['phones']), ", ".join(hit['emails']),
                               hit['name'], hit['photo_thumb_url'], hit['source'], hit['positive_ratings']])
 
-            cur_notes = [x for x in response2['hits'] if hit['id'] == x['candidate']['id']]
+            cur_notes = [x for x in all_notes if hit['id'] == x['candidate']['id']]
+
 
             stage_id, stage_name = None, None
             disqualified, disqualified_at, disqualified_by, disqualified_by_name, disqualify_kind, disqualify_reason = None, None, None, None, None, None
@@ -111,8 +137,6 @@ if __name__ == '__main__':
                 applicants.append(applicant)
 
             for placement in placements:
-                if placement['overdue_at'] is not None:
-                    print(placement['overdue_at'])
                 applicant_copy = applicant.copy()
                 disqualified, disqualified_at, disqualified_by, disqualified_by_name, disqualify_kind, disqualify_reason = None, None, None, None, None, None
                 hired_at, is_hired, offer_id, offer_title, offer_status, job_start = None, None, None, None, None, None
@@ -137,6 +161,7 @@ if __name__ == '__main__':
                 if 'job_starts_at' in placement:
                     job_start = placement['job_starts_at']
                 if 'offer' in placement:
+
                     if 'id' in placement['offer']:
                         offer_id = placement['offer']['id']
                     if 'title' in placement['offer']:
@@ -188,10 +213,21 @@ if __name__ == '__main__':
 
         df_source['time_to_hire'] = df_source[['hired_at', 'created_at']].apply(lambda x: subtract(x), axis=1)
         df_source['time_to_start'] = df_source[['job_start', 'hired_at']].apply(lambda x: subtract(x), axis=1)
+
+        df_source['offer_notes'] = ""
+
+        offer_ids = list(df_source['offer_id'].unique())
+        offer_ids.remove(0)
+
+        for id in offer_ids:
+            json_data = get_data(f"https://api.recruitee.com/c/78057/offers/{id}/notes", mode=2)
+            if len(json_data['notes']) > 0:
+                df_source.loc[df_source['offer_id']==id,"offer_notes"] = "<br>".join([x["body_html"] for x in json_data['notes']])
+
+
         df_source = df_source.fillna(np.nan).replace([np.nan], [None])
-
         dwh.execute_source(df_source=df_source)
-
+        print("Done")
     except Exception as e:
         ex_type, ex_value, ex_traceback = sys.exc_info()
         trace_back = traceback.extract_tb(ex_traceback)
