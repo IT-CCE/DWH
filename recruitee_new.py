@@ -215,6 +215,8 @@ if __name__ == '__main__':
         df_source['time_to_start'] = df_source[['job_start', 'hired_at']].apply(lambda x: subtract(x), axis=1)
 
         df_source['offer_notes'] = ""
+        df_source['department'] = ""
+
 
         offer_ids = list(df_source['offer_id'].unique())
         offer_ids.remove(0)
@@ -223,6 +225,9 @@ if __name__ == '__main__':
             json_data = get_data(f"https://api.recruitee.com/c/78057/offers/{id}/notes", mode=2)
             if len(json_data['notes']) > 0:
                 df_source.loc[df_source['offer_id']==id,"offer_notes"] = "<br>".join([x["body_html"] for x in json_data['notes']])
+            json_data2 = get_data(f"https://api.recruitee.com/c/78057/offers/{id}", mode=2)
+            if 'department' in json_data2['offer']:
+                df_source.loc[df_source['offer_id']==id,'department'] = json_data2['offer']['department']
 
 
         df_source = df_source.fillna(np.nan).replace([np.nan], [None])

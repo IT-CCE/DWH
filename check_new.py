@@ -10,7 +10,8 @@ import smtplib
 from email.message import EmailMessage
 import pandas as pd
 import json
-from sqlalchemy.exc import  ProgrammingError
+from sqlalchemy.exc import ProgrammingError
+
 
 def clean_jsons(days=14):
     json_files = glob.glob(f"C:\\Python_DWH\\Check_Tables\\json_files\\*.json")
@@ -31,16 +32,15 @@ if __name__ == '__main__':
         dwh_engine = dwh.connect_to_db(server=dwh.config_json['DWH_SERVER'], username=dwh.config_json['DWH_USERNAME'],
                                        password=dwh.config_json['DWH_PASSWORD'],
                                        database=dwh.config_json['DWH_DATABASE']
-                                    )
+                                       )
         dwh_select_query, dwh_create_query = dwh.read_query(query_type='DWH_QUERY')
         table_names = dwh.select_from_db(
             """SELECT TABLE_SCHEMA,TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';""",
             dwh_engine)
         table_names = table_names[(table_names['TABLE_SCHEMA'] != 'dbo') & (table_names['TABLE_SCHEMA'] != 'job') & (
-                    table_names['TABLE_SCHEMA'] != 'changes')]
+                table_names['TABLE_SCHEMA'] != 'changes')]
         for i, (db_schema, db_name) in table_names.iterrows():
             df = dwh.select_from_db(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}]", dwh_engine)
-
 
             pks = table_names = dwh.select_from_db(
                 f"""SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE
@@ -49,7 +49,7 @@ if __name__ == '__main__':
                 dwh_engine)
             pks = pks[pks['COLUMN_NAME'] != 'surkey']
 
-            if "valid_from" in pks and "valid_to" in pks and "timestamp" in pks:
+            if "valid_from" in df.columns and "valid_to" in df.columns and "timestamp" in df.columns:
                 cols = sorted(list(pks['COLUMN_NAME']) + ["valid_from", "valid_to", "timestamp"])
                 df = df[cols]
                 duplicate_rows_df = df[df.duplicated(keep='first')]
@@ -57,13 +57,17 @@ if __name__ == '__main__':
                 df2 = dwh.select_from_db(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}] where [valid_from] is NULL",
                                          dwh_engine)
                 df2 = df2[cols]
-                duplicate_rows_df = pd.concat([df2,duplicate_rows_df])
 
+                if len(df2) > 0 and len(duplicate_rows_df) > 0:
+                    duplicate_rows_df = pd.concat([df2, duplicate_rows_df])
+                elif len(df2) > 0:
+                    duplicate_rows_df = df2
 
                 if len(duplicate_rows_df) > 0:
                     all_errors = []
                     for value in duplicate_rows_df.iterrows():
-                        condition = ' and '.join([f"[{x}]='{y}'" for x, y in zip(list(value[1].index), value[1].tolist())])
+                        condition = ' and '.join(
+                            [f"[{x}]='{y}'" for x, y in zip(list(value[1].index), value[1].tolist())])
                         all_errors.append(f"SELECT * FROM [DWH].[{db_schema}].[{db_name}] WHERE {condition}")
                     duplicate_rows[db_name] = all_errors
 
@@ -77,7 +81,7 @@ if __name__ == '__main__':
             host = "mail.cc-energy.com"
             port = 25
 
-            msg['Subject'] = "Database Errors"
+            msg['Subject'] = "SQL Database DWH"
             msg['From'] = 'it@cce-holding.com'
             msg['To'] = 'it@cce-holding.com'
             with open(f"C:\\Python_DWH\\Check_Tables\\json_files\\update_{timestamp.strftime("%d_%m_%Y")}.json",

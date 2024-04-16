@@ -72,17 +72,6 @@ class DWH:
         :return:  List: converted List
         """
 
-        datatype_dict = {
-            "nvarchar": str,
-            "date" : datetime.date,
-            "datetime": datetime.datetime,
-            "decimal": float,
-            "int": int,
-            "smallint": int,
-            "bit": bool
-        }
-
-
         if mode == 1:
             outer_list = []
             for rows in vals:
@@ -90,7 +79,7 @@ class DWH:
                 for i, entry in enumerate(rows):
                     try:
                         datatype = self.columns_json[cols[i]]
-                    except (KeyError,IndexError) as e:
+                    except (KeyError, IndexError) as e:
                         datatype = None
 
                     if isinstance(entry, (np.int8, np.int16, np.int32, np.int64)):
@@ -99,10 +88,6 @@ class DWH:
                         entry = float(entry)
                     elif isinstance(entry, np.bool_):
                         entry = bool(entry)
-
-                    # if datatype is not None and not (isinstance(entry, datatype_dict[
-                    #     datatype.split("(")[0] if 'nvarchar' in datatype or 'decimal' in datatype else datatype]) or entry is None):
-                    #     entry = datatype_dict[datatype.split("(")[0] if 'nvarchar' in datatype or 'decimal' in datatype else datatype](entry)
 
                     inner_list.append(entry)
                 outer_list.append(inner_list)
@@ -154,7 +139,7 @@ class DWH:
         scd = (pd.concat([dw_data_warehouse, df_source_table])
                .drop_duplicates(keep=False, subset=scd_type2_columns + scd_type1_columns + unique_pk))
         scd = scd[
-            scd.duplicated(keep=False, subset=unique_pk)]  # in scd2 there are all rows that are changing (old and new)
+            scd.duplicated(keep=False, subset=unique_pk)]  # in scd there are all rows that are changing (old and new)
         scd = scd.fillna(np.nan).replace([np.nan], [None])
 
         new_records = pd.concat([dw_data_warehouse, df_source_table]).drop_duplicates(subset=unique_pk,
@@ -182,7 +167,8 @@ class DWH:
 
         if len(scd) == len(df_source_table) * 2:  # if new column(s) were added
             for i, condition in scd[unique_pk].drop_duplicates().iterrows():
-                all_filters = [scd[x] == y if y is not None else scd[x].isna() for x, y in zip(condition.index, condition)]
+                all_filters = [scd[x] == y if y is not None else scd[x].isna() for x, y in
+                               zip(condition.index, condition)]
                 filter_rows = reduce(lambda x, y: x & y, all_filters)  # go over all old_row,new_row pairs for scd2
                 df_diff = scd.loc[filter_rows]
                 old_entry = df_diff.iloc[-2]
@@ -205,8 +191,9 @@ class DWH:
             if len(scd) > 0:
 
                 for i, condition in scd[unique_pk].drop_duplicates().iterrows():
-                    #all_filters = [scd[x] == y for x, y in zip(condition.index, condition)]
-                    all_filters = [scd[x] == y if y is not None else scd[x].isna() for x, y in zip(condition.index, condition)]
+                    # all_filters = [scd[x] == y for x, y in zip(condition.index, condition)]
+                    all_filters = [scd[x] == y if y is not None else scd[x].isna() for x, y in
+                                   zip(condition.index, condition)]
                     filter_rows = reduce(lambda x, y: x & y, all_filters)  #
                     df_diff = scd.loc[filter_rows]
                     old_entry = df_diff.iloc[-2]
@@ -229,6 +216,7 @@ class DWH:
                              # fill list with old_value, new_value, columns for change table
                              old_val[0]])
                         values_change_table.append(key_cols)
+
                     old_entry1['timestamp'] = self.timestamp - datetime.timedelta(
                         minutes=1)  # set timestamp and valid_to
                     old_entry1['valid_to'] = self.timestamp
@@ -277,9 +265,8 @@ class DWH:
 
             sql_query = f"""UPDATE {destination_table} SET {", ".join([f'[{x}] = ?' for x in columns])} 
             WHERE {" AND ".join([f"[{x}]=\'{y}\'" if x != 'valid_from'
-            else f"[{x}]=\'{y.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\'"
+                                                                                                                                        else f"[{x}]=\'{y.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\'"
                                  for x, y in zip(where.index.tolist(), where.tolist())])}"""
-            # self.to_python_vals(row)
             conn.cursor().executemany(sql_query, self.to_python_vals([row.values.tolist()], columns, mode))
 
         conn.commit()
@@ -325,7 +312,6 @@ class DWH:
             VALUES ({("?," * (len(df_insert.columns)))[:-1]})"""
 
         conn = engine.raw_connection()
-        # self.to_python_vals(df_insert)
         conn.cursor().executemany(sql, self.to_python_vals(values, df_insert.columns, mode))
         conn.commit()
         conn.close()
