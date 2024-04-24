@@ -73,9 +73,8 @@ if __name__ == '__main__':
                 df_job = pd.DataFrame([["DELETE ENTRIES "+dwh.config_json['JOB_NAME'], len(delete_timestamps), 0,
                                         0, None, dwh.timestamp]], columns=job_columns[1:])
 
-                dwh.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
-                                    first_insert=False,
-                                    add_time_cols=False, mode=2)
+                dwh.insert_into_db(destination_table=dest_table_job, df_insert=df_job,
+                                   engine=dwh_engine,add_time_cols=False)
     print("Successful")
     print(f"Execution took: {round(time.time() - start_time, 2)}")
 

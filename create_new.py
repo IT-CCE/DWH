@@ -79,7 +79,7 @@ class TK_GUI():
 
         self.window.withdraw()
         self.new_r = tk.Toplevel(self.window)
-        self.new_r.geometry("1500x1000")
+        self.new_r.geometry("1500x900")
         if self.scd_or_insert_var.get() == 'SCD':
             cols = 10 if len(columns) > 10 else len(columns)
             rows = math.ceil(len(columns) / cols)
@@ -114,22 +114,30 @@ class TK_GUI():
             self.change_dwh_e.insert(0, '..._change')
         b2 = tk.Button(self.new_r, text="Create", command=self.check_if_table_exists)
 
-        name_l.place(relx=0.5, rely=0.55, anchor=tk.CENTER)
-        self.name_e.place(relx=0.5, rely=0.575, anchor=tk.CENTER)
-        dwh_schema_l.place(relx=0.5, rely=0.65, anchor=tk.CENTER)
-        self.dwh_schema_e.place(relx=0.5, rely=0.675, anchor=tk.CENTER)
-        dwh_l.place(relx=0.5, rely=0.75, anchor=tk.CENTER)
-        self.dwh_e.place(relx=0.5, rely=0.775, anchor=tk.CENTER)
+        name_l.place(relx=0.2, rely=0.7, anchor=tk.CENTER)
+        self.name_e.place(relx=0.2, rely=0.725, anchor=tk.CENTER)
+        dwh_schema_l.place(relx=0.4, rely=0.7, anchor=tk.CENTER)
+        self.dwh_schema_e.place(relx=0.4, rely=0.725, anchor=tk.CENTER)
+        dwh_l.place(relx=0.6, rely=0.7, anchor=tk.CENTER)
+        self.dwh_e.place(relx=0.6, rely=0.725, anchor=tk.CENTER)
+
+        self.job_add = tk.StringVar()
+        freq_labels = ['Daily', 'Weekly', 'First of Month', 'Custom']
+        self.job_add.set(freq_labels[0])
+
+        freq = tk.OptionMenu(self.new_r, self.job_add, *freq_labels)
+
         if self.scd_or_insert_var.get() == 'SCD':
-            change_dwh_l.place(relx=0.5, rely=0.85, anchor=tk.CENTER)
-            self.change_dwh_e.place(relx=0.5, rely=0.875, anchor=tk.CENTER)
-        b2.place(relx=0.5, rely=0.95, anchor=tk.CENTER)
+            change_dwh_l.place(relx=0.8, rely=0.70, anchor=tk.CENTER)
+            self.change_dwh_e.place(relx=0.8, rely=0.725, anchor=tk.CENTER)
+            tk.Label(self.new_r, text=f'Select Update Frequency').place(relx=0.5, rely=0.775, anchor=tk.CENTER)
+            freq.place(relx=0.5, rely=0.8125, anchor=tk.CENTER)
+        else:
+            tk.Label(self.new_r, text=f'Select Update Frequency').place(relx=0.8, rely=0.7, anchor=tk.CENTER)
+            freq.place(relx=0.8, rely=0.7375, anchor=tk.CENTER)
 
-        #
 
-    def set_connect_button_visable(self, event):
-        self.connect_button.place(relx=0.5, rely=0.95, anchor=tk.CENTER)
-
+        b2.place(relx=0.5, rely=0.9, anchor=tk.CENTER)
     def create_files(self):
 
         source_query = self.source_query.get("1.0", tk.END)
@@ -265,8 +273,45 @@ class TK_GUI():
             with open(os.path.join(self.whole_path, f"COLUMNS.json"), "w", encoding='utf-8') as f:
                 f.write(json_cols)
 
+
+            self.add_to_job()
+
             messagebox.showinfo("Info", "Files successful created")
             self.window1.quit()
+
+    def add_to_job(self):
+        with open(r'C:\Python_DWH\Json_Files\Job\CONFIG.json', 'r', encoding='utf-8') as j:
+            self.job_config = json.loads(j.read())
+
+        if self.scd_or_insert_var.get() == 'INSERT':
+
+            self.job_config[f'{self.name_e.get()}'] = {
+                "Executable": "C:\\Program Files\\Python312\\python.exe",
+                "Arguments": f"C:\\Python_DWH\\Python_Files\\db_new.py C:\\Python_DWH\\Json_Files\\{self.name_e.get()} True",
+                "Trigger": self.job_add.get(),
+                "Is_Active": "True"
+            }
+        else:
+            self.job_config[f'{self.name_e.get()}'] = {
+                "Executable": "C:\\Program Files\\Python312\\python.exe",
+                "Arguments": f"C:\\Python_DWH\\Python_Files\\db_new.py C:\\Python_DWH\\Json_Files\\{self.name_e.get()}",
+                "Trigger": self.job_add.get(),
+                "Is_Active": "True"
+            }
+
+        def sort_dict(d):
+            def sort_key(key):
+                non_underscore_start = key.lstrip('_')
+                underscore_count = len(key) - len(non_underscore_start)
+                return (underscore_count > 0, underscore_count, key)
+            sorted_keys = sorted(d.keys(), key=sort_key)
+            sorted_dict = {key: d[key] for key in sorted_keys}
+            return sorted_dict
+
+        self.job_config = sort_dict(self.job_config)
+        json_cols = json.dumps(self.job_config, indent=4, ensure_ascii=False)
+        with open(r'C:\Python_DWH\Json_Files\Job\CONFIG.json', "w", encoding='utf-8') as f:
+            f.write(json_cols)
 
     def check_if_table_exists(self):
         if any([click.get() == "Primary Key" for click, _ in self.vars]) or self.scd_or_insert_var.get() == 'INSERT':
@@ -330,8 +375,7 @@ class TK_GUI():
 
         self.scd_or_insert = tk.Label(self.window, text=f'SCD or Plain INSERT')
 
-        self.fact_dim_drop = tk.OptionMenu(self.window, self.fact_dim_var, *options,
-                                           command=self.set_connect_button_visable)
+        self.fact_dim_drop = tk.OptionMenu(self.window, self.fact_dim_var, *options)
 
         self.scd_or_insert_drop = tk.OptionMenu(self.window, self.scd_or_insert_var, *['SCD', 'INSERT'])
 
@@ -372,7 +416,8 @@ class TK_GUI():
 
         self.sourcer_query_label.place(relx=0.5, rely=0.7, anchor=tk.CENTER)
         self.source_query.place(relx=0.5, rely=0.8, anchor=tk.CENTER)
-        self.connect_button.place(relx=0.5, rely=0.925, anchor=tk.CENTER)
+        self.connect_button.place(relx=0.5, rely=0.85, anchor=tk.CENTER)
+        self.connect_button.place(relx=0.5, rely=0.9, anchor=tk.CENTER)
         self.window.geometry("700x1000")
 
     def select_job(self, next_function):

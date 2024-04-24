@@ -16,28 +16,50 @@ import time
 from typing import List, Union, Tuple, Any
 
 
+"""
+Author: Alexander Huber
+Email: a.huber@cce.holding.com
+"""
+
 class DWH:
 
-    def __init__(self, timestamp: datetime.datetime, path: str, add_valid_from: bool) -> None:
+    def __init__(self, timestamp: datetime.datetime, path: str, type_scd2: bool) -> None:
+        """
+        Initalizes DWH with the given parameters.
+        Parameters:
+                - timestamp: used as reference when inserting or updating elements
+                - path: specifies the location of the json files
+                - type_scd2: True means SCD2 Insert and False means Plain Insert
+        """
         self.timestamp = timestamp
-        self.config_json = None
-        self.columns_json = None
-        self.query_json = None
+        self.config_json = None # will be set in self.read_jsons()
+        self.columns_json = None # will be set in self.read_jsons()
+        self.query_json = None # will be set in self.read_jsons()
         self.path = path
         self.read_jsons(self.path)
-        self.add_valid_from = add_valid_from
+        self.type_scd2 = type_scd2
+        self.df_dwh = None
+        self.df_source = None
+        self.scd2_vals = None
+        self.new_rows = None
+        self.updates_rows = None
 
-    def connect_to_db(self, server, username, password, database) -> Engine:
+    def connect_to_db(self, server: str, username: str, password: str, database: str) -> Engine:
         """
-        Establishes a Connection to the Database with the given Parameter
+        Establishes a connection to the SQL Server database with the specified parameters.
 
-        :param db_type: str: Either DWH or SOURCE
+        Parameters:
+        - server (str): Hostname or IP address of the SQL server.
+        - username (str): Username for the SQL server.
+        - password (str): Password for the SQL server.
+        - database (str): Name of the database to connect to.
 
-        :return: sqlalchemy.Engine: database engine for operations
+        Returns:
+        - sqlalchemy.Engine: A database engine instance that can be used for further database operations.
         """
 
-        con_string = (f'DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes'
-                      f';SERVER={server};DATABASE={database};UID={username};PWD={password}')
+        con_string = (f'DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;'
+                      f'SERVER={server};DATABASE={database};UID={username};PWD={password}')
         connection_url = URL.create(
             "mssql+pyodbc",
             query={"odbc_connect": con_string}
@@ -47,80 +69,168 @@ class DWH:
 
     def read_jsons(self, path) -> None:
         """
-        Reads the json files with the path given in the argument
-        :return: None
+        Reads specific JSON files from a given directory and loads their contents into attributes of the class.
+        This function specifically looks for 'COLUMNS.json', 'CONFIG.json', and 'QUERY.json'.
+        It sets the attributes `columns_json`, `config_json`, and `query_json` of the instance based on the file contents.
+
+        Parameters:
+        - path (str): Directory path where the JSON files are located.
+
+        Raises:
+            - Exception: If the Json File could not be read.
         """
 
         search = sorted(glob(os.path.join(path, "*.json")))
-        for i, file in enumerate(search):
-            if os.path.basename(file) == 'COLUMNS.json':
-                with open(file, 'r', encoding='utf-8') as j:
-                    self.columns_json = json.loads(j.read())
+        json_map = {
+            'COLUMNS.json': 'columns_json',
+            'CONFIG.json': 'config_json',
+            'QUERY.json': 'query_json'
+        }
+        for file in search:
+            file_name = os.path.basename(file)
+            if file_name in json_map:
+                try:
+                    with open(file, 'r', encoding='utf-8') as j:
+                        setattr(self, json_map[file_name], json.loads(j.read()))
+                except Exception as e:
+                    raise Exception(f"Json File read Exception: {str(e)}")
 
-            elif os.path.basename(file) == 'CONFIG.json':
-                with open(file, 'r', encoding='utf-8') as j:
-                    self.config_json = json.loads(j.read())
-
-            elif os.path.basename(file) == 'QUERY.json':
-                with open(file, 'r', encoding='utf-8') as j:
-                    self.query_json = json.loads(j.read())
-
-    def to_python_vals(self, vals: List, cols, mode=1) -> List:
+    def to_python_vals(self, vals: List[List[Any]]) -> List[List[Any]]:
         """
-        Changes the numpy database to python standard datatypes
-        :param vals: List: of Lists that contain the values that should be converted
-        :return:  List: converted List
+        Converts a list of lists containing NumPy data types to corresponding native Python data types.
+        Parameters:
+            - vals (List[List[Any]]): Nested list of values containing NumPy data types to be converted.
+        Returns:
+            - List[List[Any]]: A nested list with the same structure as `vals` but with all data converted to native Python types.
+        Raises:
+            - Exception: If Conversion failed.
         """
 
-        if mode == 1:
-            outer_list = []
-            for rows in vals:
-                inner_list = []
-                for i, entry in enumerate(rows):
-                    try:
-                        datatype = self.columns_json[cols[i]]
-                    except (KeyError, IndexError) as e:
-                        datatype = None
+        def convert(value: Any) -> Any:
+            try:
+                if isinstance(value, np.integer):
+                    return int(value)
+                elif isinstance(value, np.floating):
+                    return float(value)
+                elif isinstance(value, np.bool_):
+                    return bool(value)
+                else:
+                    return value
+            except Exception as e:
+                raise Exception(f"Conversion of {value} was not possible: {e}")
 
-                    if isinstance(entry, (np.int8, np.int16, np.int32, np.int64)):
-                        entry = int(entry)
-                    elif isinstance(entry, (np.float16, np.float32, np.float64)):
-                        entry = float(entry)
-                    elif isinstance(entry, np.bool_):
-                        entry = bool(entry)
-
-                    inner_list.append(entry)
-                outer_list.append(inner_list)
-        else:  # job
-            outer_list = []
-            for rows in vals:
-                inner_list = []
-                for entry in rows:
-                    if isinstance(entry, (np.int8, np.int16, np.int32, np.int64)):
-                        inner_list.append(int(entry))
-                    elif isinstance(entry, (np.float16, np.float32, np.float64)):
-                        inner_list.append(float(entry))
-                    elif isinstance(entry, np.bool_):
-                        inner_list.append(bool(entry))
-
-                    else:
-                        inner_list.append(entry)
-                outer_list.append(inner_list)
+        outer_list = []
+        for rows in vals:
+            inner_list = [convert(entry) for entry in rows]
+            outer_list.append(inner_list)
 
         return outer_list
 
     def read_query(self, query_type: str) -> Union[str, tuple[str, str]]:
         """
-        Returns the query for the specified dictionary
-        :param query_type: str: of either SOURCE_QUERY,DWH_QUERY, CHANGE_QUERY
-        :return: str: select query or tuple: select and create query
+        Retrieves a SQL query or queries for the specified type from a stored JSON dictionary.
+        Parameters:
+            - query_type (str): Type of the query, which must be one of 'SOURCE_QUERY', 'DWH_QUERY', or 'CHANGE_QUERY'.
+        Returns:
+            - str: The specified query type from the JSON dictionary
+        Raises:
+            - KeyError: If Query type is not in present in the JSON file.
         """
+        if query_type not in ['SOURCE_QUERY','DWH_QUERY', 'CHANGE_QUERY']:
+            raise KeyError(f"Query with type: {query_type} not found please use one of SOURCE_QUERY,DWH_QUERY, CHANGE_QUERY")
+
         query_dict = self.query_json[query_type]
 
         if len(query_dict) == 1:
             return query_dict['SELECT']
 
         return query_dict['SELECT'], query_dict['CREATE']
+
+    def get_source_engine(self):
+        """
+        Retrieves a database engine connected to the source database using configurations stored in `self.config_json`.
+
+        Returns:
+        - Engine: A SQLAlchemy engine instance connected to the source database.
+
+        Raises:
+        - KeyError: If any required configuration keys are missing in `self.config_json`.
+        """
+        required_keys = ['SOURCE_SERVER', 'SOURCE_USERNAME', 'SOURCE_PASSWORD', 'SOURCE_DATABASE']
+        missing_keys = [key for key in required_keys if key not in self.config_json]
+        if missing_keys:
+            raise KeyError(f"Missing required parameters: {', '.join(missing_keys)}")
+
+        return self.connect_to_db(server=self.config_json['SOURCE_SERVER'],
+                                  username=self.config_json['SOURCE_USERNAME'],
+                                  password=self.config_json['SOURCE_PASSWORD'],
+                                  database=self.config_json['SOURCE_DATABASE'])
+
+    def get_dwh_engine(self):
+        """
+        Retrieves a database engine connected to the DWH database using configurations stored in `self.config_json`.
+
+        Returns:
+        - Engine: A SQLAlchemy engine instance connected to the DWH database.
+
+        Raises:
+        - KeyError: If any required configuration keys are missing in `self.config_json`.
+        """
+        required_keys = ['DWH_SERVER', 'DWH_USERNAME', 'DWH_PASSWORD', 'DWH_DATABASE']
+        missing_keys = [key for key in required_keys if key not in self.config_json]
+        if missing_keys:
+            raise KeyError(f"Missing required parameters: {', '.join(missing_keys)}")
+        return self.connect_to_db(server=self.config_json['DWH_SERVER'],
+                                  username=self.config_json['DWH_USERNAME'],
+                                  password=self.config_json['DWH_PASSWORD'],
+                                  database=self.config_json['DWH_DATABASE'])
+
+    def get_df_dwh(self, select=True):
+        """
+       Fetches data from the DWH database using predefined queries.
+
+       Parameters:
+       - select (bool): Determines which predefined query to use (True for SELECT, False for CREATE).
+
+       Returns:
+       - DataFrame: A DataFrame containing the result of the query execution.
+           """
+        try:
+            dwh_select_query, dwh_create_query = self.read_query(query_type='DWH_QUERY')
+            query = dwh_select_query if select else dwh_create_query
+            return self.select_from_db(select_query=query, engine=self.get_dwh_engine())
+        except Exception as e:
+            raise Exception(f"Failed to retrieve DWH data: {e}")
+
+    def get_df_source(self):
+        """
+           Fetches data from the source database using a predefined SELECT query.
+
+           Returns:
+           - DataFrame: A DataFrame containing the result of the query execution.
+           """
+        try:
+            source_select_query = self.read_query(query_type='SOURCE_QUERY')
+            return self.select_from_db(select_query=source_select_query, engine=self.get_source_engine())
+        except Exception as e:
+            raise Exception(f"Failed to retrieve source data: {e}")
+
+    def get_df_custom(self, custom_query, db_type='source'):
+        """
+        Fetches data using a custom query from the specified database type.
+
+        Parameters:
+        - custom_query (str): SQL query to execute.
+        - db_type (str): Type of database ('source' or 'dwh') to execute the query against.
+
+        Returns:
+        - DataFrame: A DataFrame containing the result of the query execution.
+        """
+        try:
+            engine = self.get_source_engine() if db_type == 'source' else self.get_dwh_engine()
+            return self.select_from_db(select_query=custom_query, engine=engine)
+        except Exception as e:
+            raise Exception(f"Failed to retrieve data from {db_type} database with custom query: {e}")
 
     def identify_rows(self, scd_type2_columns: List, scd_type1_columns: List, dw_data_warehouse: pd.DataFrame,
                       df_source_table: pd.DataFrame, change_db_cols: List,
@@ -140,11 +250,11 @@ class DWH:
                .drop_duplicates(keep=False, subset=scd_type2_columns + scd_type1_columns + unique_pk))
         scd = scd[
             scd.duplicated(keep=False, subset=unique_pk)]  # in scd there are all rows that are changing (old and new)
-        scd = scd.fillna(np.nan).replace([np.nan], [None])
+        scd = scd.replace({np.nan: None})
 
         new_records = pd.concat([dw_data_warehouse, df_source_table]).drop_duplicates(subset=unique_pk,
                                                                                       keep=False).reset_index()
-        new_records = new_records.fillna(np.nan).replace([np.nan], [None])
+        new_records = new_records.replace({np.nan: None})
         values_change_table = []
         scd2_new_rows = []
         update_rows = []
@@ -191,11 +301,15 @@ class DWH:
             if len(scd) > 0:
 
                 for i, condition in scd[unique_pk].drop_duplicates().iterrows():
-                    # all_filters = [scd[x] == y for x, y in zip(condition.index, condition)]
                     all_filters = [scd[x] == y if y is not None else scd[x].isna() for x, y in
                                    zip(condition.index, condition)]
                     filter_rows = reduce(lambda x, y: x & y, all_filters)  #
                     df_diff = scd.loc[filter_rows]
+
+                    if len(df_diff) != 2:
+                        primary_key_fail = ', '.join([f'{x}={y}' for x, y in zip(condition.index, condition)])
+                        raise Exception(f"More than 2 Entries (Primary Key not unique: {primary_key_fail})")
+
                     old_entry = df_diff.iloc[-2]
                     new_entry = df_diff.iloc[-1]
                     old_entry1 = old_entry.copy()
@@ -243,53 +357,71 @@ class DWH:
             insert_rows = new_records
 
         insert_rows.drop(['timestamp', 'valid_to', 'valid_from'], axis=1, inplace=True)
-        insert_rows = insert_rows.fillna(np.nan).replace([np.nan], [None])
+        insert_rows = insert_rows.replace({np.nan: None})
 
         values_change_table = pd.DataFrame(values_change_table, columns=change_db_cols)
-        values_change_table = values_change_table.fillna(np.nan).replace([np.nan], [None])
+        values_change_table = values_change_table.replace({np.nan: None})
 
         return values_change_table, insert_rows, update_rows
 
     def update_records(self, destination_table: str, update_entries: list, columns: list, primary_key: list,
-                       engine: sqlalchemy.Engine, mode) -> None:
-        # update_records follows sql: UPDATE [DB] SET [C1] = ?, [C2] = ?, ... WHERE [UNIQUE_ROWS] = UNIQUE_VALUE
+                       engine: sqlalchemy.Engine) -> None:
+        """
+           Update specified records in a database table.
+           follows sql: UPDATE [DB] SET [C1] = ?, [C2] = ?, ... WHERE [UNIQUE_ROWS] = UNIQUE_VALUE
+
+        Parameters:
+                - destination_table (str): The name of the table to update.
+                - update_entries (list): A list of dictionaries representing the rows to update.
+                - columns (list): List of columns that need updating.
+                - primary_key (list): Columns that uniquely identify rows to update.
+                - engine (sqlalchemy.Engine): Database connection engine.
+
+        Raises:
+                - Exception: When updating failed
+        """
         conn = engine.raw_connection()
-        [columns.remove(x) for x in primary_key]
+
+        columns = [col for col in columns if col not in primary_key]
         if 'timestamp' not in columns and 'valid_from' not in columns and 'valid_to' not in columns:
             columns.extend(['timestamp', 'valid_from', 'valid_to'])
+        cursor = conn.cursor()
+        try:
+            for row in update_entries:
+                where = row[primary_key + ['valid_from']]
 
-        for row in update_entries:
-            where = row[primary_key + ['valid_from']]
+                row.drop(['surkey'] + primary_key, inplace=True, errors='ignore')
 
-            row.drop(['surkey'] + primary_key, inplace=True, errors='ignore')
+                header = f"UPDATE {destination_table} SET"
+                columns_update_sql = f"{", ".join([f'[{x}] = ?' for x in columns])} WHERE "
+                condition = [f"[{x}]=\'{y}\'" if x != 'valid_from'
+                else f"[{x}]=\'{y.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\'"
+                                     for x, y in zip(where.index.tolist(), where.tolist())]
+                where_clause = " AND ".join(condition)
 
-            sql_query = f"""UPDATE {destination_table} SET {", ".join([f'[{x}] = ?' for x in columns])} 
-            WHERE {" AND ".join([f"[{x}]=\'{y}\'" if x != 'valid_from'
-                                                                                                                                        else f"[{x}]=\'{y.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\'"
-                                 for x, y in zip(where.index.tolist(), where.tolist())])}"""
-            conn.cursor().executemany(sql_query, self.to_python_vals([row.values.tolist()], columns, mode))
+                sql_query = header + columns_update_sql + where_clause
+                cursor.executemany(sql_query, self.to_python_vals([row.values.tolist()]))
+            conn.commit()
 
-        conn.commit()
-        conn.close()
+        except Exception as e:
+            conn.rollback()
+            raise Exception(f"Could not update Entries: {str(e)}")
 
-    def insert_into_db(self, destination_table: str, df_insert: pd.DataFrame, engine: sqlalchemy.Engine,
-                       first_insert=False, add_time_cols=True, mode=1) -> None:
+        finally:
+            cursor.close()
+            conn.close()
+
+    def insert_into_db(self, destination_table: str, df_insert: pd.DataFrame, engine: sqlalchemy.Engine, add_time_cols=True) -> None:
         """
         Function to insert entries in the format: INSERT INTO [DB] (COLUMN1, COLUMN2,..) VALUES (?,?,..)
-        :param mode:
-        :param destination_table: str: the destination table in the form: [..].[..].[..]
-        :param df_insert: pd.Dataframe: of the entries for insertion
-        :param engine: sqlalchemy.Engine: database engine where to insert entries
-        :param first_insert: boolean: if true sets valid_from to 01.01.1900 00:00:00,
-                                      otherwise subtracts 1 minute from timestamp
-        :param add_time_cols: : boolean: if true adds timestamp and valid_from otherwise ignores them
-        :return: None
+        Parameters:
+            - destination_table: str: the destination table in the form: [..].[..].[..]
+            - df_insert: pd.Dataframe: of the entries for insertion
+            - engine: sqlalchemy.Engine: database engine where to insert entries
+            - add_time_cols: : boolean: if true adds timestamp and valid_from otherwise ignores them
         """
 
-        if first_insert:
-            valid_from = datetime.datetime(1900, 1, 1, 0, 0, second=0)
-        else:
-            valid_from = self.timestamp - datetime.timedelta(minutes=1)
+        valid_from = self.timestamp - datetime.timedelta(minutes=1)
 
         if 'surkey' in df_insert.columns:
             df_insert = df_insert.drop(['surkey'], axis=1, errors='ignore')
@@ -297,7 +429,7 @@ class DWH:
         values = df_insert.values.tolist()
 
         if add_time_cols:
-            if self.add_valid_from:
+            if self.type_scd2:
                 add = [self.timestamp, valid_from]
                 add_names = ',[timestamp],[valid_from]'
             else:
@@ -312,19 +444,32 @@ class DWH:
             VALUES ({("?," * (len(df_insert.columns)))[:-1]})"""
 
         conn = engine.raw_connection()
-        conn.cursor().executemany(sql, self.to_python_vals(values, df_insert.columns, mode))
-        conn.commit()
-        conn.close()
+        cursor = conn.cursor()
+        try:
+            cursor.executemany(sql, self.to_python_vals(values))
+        except Exception as e:
+            conn.rollback()
+            raise Exception(f"Could not insert Entries: {str(e)}")
+        finally:
+            cursor.close()
+            conn.close()
 
     def select_from_db(self, select_query: str, engine: sqlalchemy.Engine) -> pd.DataFrame:
         """
         Execute select statement on a given database engine
-        :param select_query: str: the sql select query
-        :param engine: sqlalchemy.Engine: database engine where to execute queries
-        :return: content of the database table as pandas Dataframe
+        Parameter:
+            - select_query: str: the sql select query
+            - engine: sqlalchemy.Engine: database engine where to execute queries
+        Returns:
+             - content of the database table as pandas Dataframe
         """
+
         with engine.connect() as connection:
-            df = pd.read_sql(select_query, connection)
+            try:
+                df = pd.read_sql(select_query, connection)
+            except Exception as e:
+                raise Exception(f"Could exceute select statement: {str(e)}")
+
         return df
 
     def create_db_if_not_exists(self, sql_select_query: str, sql_create_query: str,
@@ -333,10 +478,12 @@ class DWH:
         Tries to connect to a database.
         If ProgrammingError -> Create database and returns the emtpy dataframe
         If Success --> Returns dataframe of the database
-        :param sql_select_query: str: of the select query
-        :param sql_create_query: str: of the create query
-        :param engine: sqlalchemy.Engine: database engine where to execute queries
-        :return: pd.Dataframe: content of the database table
+        Parameter
+            - sql_select_query: str: of the select query
+            - sql_create_query: str: of the create query
+            - engine: sqlalchemy.Engine: database engine where to execute queries
+        Returns:
+             - pd.Dataframe: content of the database table
         """
         try:
             df = self.select_from_db(sql_select_query, engine=engine)
@@ -352,16 +499,20 @@ class DWH:
     def dest_table(self, select_query: str) -> str:
         """
         Searches for the Destination Table in a select query
-        :param select_query: str that defines the select query
-        :return: str: the destination table in the form: [..].[..].[..]
+        Parameter:
+            - select_query: str that defines the select query
+        Returns:
+            - str: the destination table in the form: [..].[..].[..]
         """
         return re.findall(r'\[.*\]', select_query)[0]
 
     def table_columns(self, df: pd.DataFrame) -> List:
         """
         Returns the columns of a Dataframe without surkey column
-        :param df: pd.Dataframe: dataframe where to extract columns from
-        :return: List: column names
+        Parameter:
+            - df: pd.Dataframe: dataframe where to extract columns from
+        Returns
+            - List: column names
         """
         cols = list(df.columns)
         if 'surkey' in cols:
@@ -369,6 +520,9 @@ class DWH:
         return cols
 
     def exception_handling(self):
+        """
+        Carries out the Exception Handling and inserting Error Message in Database and saves CSV List if exists.
+        """
         ex_type, ex_value, ex_traceback = sys.exc_info()
         trace_back = traceback.extract_tb(ex_traceback)
         last_track_back = trace_back[-1]
@@ -391,7 +545,6 @@ class DWH:
                               columns=job_columns[1:])
         # create entry for failed job
         self.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
-                            first_insert=False,
                             add_time_cols=False)  # insert the failure row
         print("Failed")
         print(f"Line Nr: {last_track_back[1]}\nLine: {last_track_back[3]}\n"
@@ -419,45 +572,46 @@ class DWH:
 
     def execute_source_dwh(self):
         """
-        Performs database update with source and dwh parameter defined in the config
-        :return: None
+        Main Function that performs DWH Update using SCD2 or INSERT with comparison to Source Database.
         """
         start_time = time.time()
 
         try:
             ########################################## DWH Operations ################################################
-            dwh_engine = self.connect_to_db(server=self.config_json['DWH_SERVER'],
-                                            username=self.config_json['DWH_USERNAME'],
-                                            password=self.config_json['DWH_PASSWORD'],
-                                            database=self.config_json['DWH_DATABASE'])  # connect to database | DWH
 
-            dwh_select_query, dwh_create_query = self.read_query(
-                query_type='DWH_QUERY')  # select and create query | DWH
+            dwh_engine = self.get_dwh_engine()  # connect to database | DWH
+
+            dwh_select_query, dwh_create_query = self.read_query(query_type='DWH_QUERY')  # select and create query | DWH
+
             dest_table_dwh = self.dest_table(select_query=dwh_create_query)  # destination table DWH
+
             self.df_dwh = self.create_db_if_not_exists(sql_select_query=dwh_select_query,
                                                        sql_create_query=dwh_create_query,
                                                        engine=dwh_engine)  # create the database if it does not exist | DWH
-            self.df_dwh = self.df_dwh.fillna(np.nan).replace([np.nan], [None])
 
-            # datatypes_query = f"DECLARE @query nvarchar(max) = '{dwh_select_query.replace('\'', '\'\'')}';\nEXEC sp_describe_first_result_set @query, null, 0;"
-            #
-            # df_datatypes = self.select_from_db(datatypes_query,dwh_engine)
+            self.df_dwh = self.df_dwh.replace({np.nan: None})
 
             ######################################## Source Operations ################################################
-            source_engine = self.connect_to_db(server=self.config_json['SOURCE_SERVER'],
-                                               username=self.config_json['SOURCE_USERNAME'],
-                                               password=self.config_json['SOURCE_PASSWORD'],
-                                               database=self.config_json[
-                                                   'SOURCE_DATABASE'])  # connect to source database
+
+            source_engine = self.get_source_engine()  # connect to source database
 
             source_select_query = self.read_query(query_type='SOURCE_QUERY')
 
             self.df_source = self.select_from_db(select_query=source_select_query,
                                                  engine=source_engine)  # execute query on source
-            self.df_source = self.df_source.fillna(np.nan).replace([np.nan], [None])  # replace np.nan with python None
+            self.df_source = self.df_source.replace({np.nan: None})  # replace np.nan with python None
 
-            ##################################### Change Operations ##################################################
-            if self.config_json['MODE'] == 'SCD':
+            if len(self.df_dwh) == 0 or self.config_json['MODE'] == 'INSERT':  # if the data warehouse table is empty
+                self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.df_source, engine=dwh_engine)
+
+                self.new_rows = self.df_source  # get values for job table
+
+                self.updates_rows = []  # get values for job table
+
+            else:
+
+                ##################################### Change Operations ###############################################
+
                 change_select_query, change_create_query = self.read_query(query_type='CHANGE_QUERY')
 
                 self.create_db_if_not_exists(sql_select_query=change_select_query, sql_create_query=change_create_query,
@@ -465,20 +619,17 @@ class DWH:
                 df_change = self.select_from_db(select_query=change_select_query, engine=dwh_engine)
 
                 change_table = self.dest_table(select_query=change_select_query)  # get the change table name
+
                 change_db_cols = self.table_columns(df_change)  # get the change table columns
 
-            ########################################## Insertions ###################################################
+                ########################################## Insertions #################################################
 
-            if len(self.df_dwh) == 0 or self.config_json['MODE'] == 'INSERT':  # if the data warehouse table is empty
-                self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.df_source, engine=dwh_engine)
-                self.new_rows = self.df_source  # get values for job table
-                self.updates_rows = []  # get values for job table
-
-            else:
                 scd_t2_columns = [x for x in self.config_json['SCD2'].split(",") if len(x) > 0] if len(
                     self.config_json['SCD2']) > 0 else []
+
                 scd_t1_columns = [x for x in self.config_json['SCD1'].split(",") if len(x) > 0] if len(
                     self.config_json['SCD1']) > 0 else []  # get all the scd type 1 columns
+
                 unique_columns = self.config_json['DWH_UNIQUE_ENTRIES'].split(",")  # get the primary key(s)
 
                 self.scd2_vals, self.new_rows, self.updates_rows = self.identify_rows(scd_type2_columns=scd_t2_columns,
@@ -493,16 +644,15 @@ class DWH:
                     self.update_records(destination_table=dest_table_dwh, update_entries=self.updates_rows,
                                         columns=list(self.updates_rows[0].keys()),
                                         primary_key=unique_columns,
-                                        engine=dwh_engine, mode=1)
+                                        engine=dwh_engine)
                 ##################################### Change ##########################################################
                 if len(self.scd2_vals) > 0:
-                    self.insert_into_db(destination_table=change_table, df_insert=self.scd2_vals, engine=dwh_engine,
-                                        first_insert=False, add_time_cols=False, mode=1)
+                    self.insert_into_db(destination_table=change_table, df_insert=self.scd2_vals,
+                                        engine=dwh_engine, add_time_cols=False)
 
                 ##################################### Insert ###########################################################
                 if len(self.new_rows) > 0:
-                    self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.new_rows, engine=dwh_engine,
-                                        first_insert=False, mode=1)
+                    self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.new_rows, engine=dwh_engine)
 
                 ###################################### Job ############################################################
 
@@ -517,8 +667,7 @@ class DWH:
                                     0, None, self.timestamp]], columns=job_columns[1:])
 
             self.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
-                                first_insert=False,
-                                add_time_cols=False, mode=2)
+                                add_time_cols=False)
 
             print("Successful")
             print(f"Execution took: {round(time.time() - start_time, 2)}")
@@ -528,29 +677,37 @@ class DWH:
 
     def execute_source(self, df_source: pd.DataFrame):
         """
-        Performs database update with a given external source (Not Database)
-        :return: None
+        Main Function that performs DWH Update with external dataframe and using SCD2 or INSERT.
+
         """
         start_time = time.time()
 
         try:
             ########################################## DWH Operations ################################################
-            dwh_engine = self.connect_to_db(server=self.config_json['DWH_SERVER'],
-                                            username=self.config_json['DWH_USERNAME'],
-                                            password=self.config_json['DWH_PASSWORD'],
-                                            database=self.config_json['DWH_DATABASE'])  # connect to database | DWH
+
+            dwh_engine = self.get_dwh_engine()  # connect to database | DWH
 
             dwh_select_query, dwh_create_query = self.read_query(
                 query_type='DWH_QUERY')  # select and create query | DWH
+
             dest_table_dwh = self.dest_table(select_query=dwh_create_query)  # destination table DWH
-            df_dwh = self.create_db_if_not_exists(sql_select_query=dwh_select_query, sql_create_query=dwh_create_query,
-                                                  engine=dwh_engine)  # create the database if it does not exist | DWH
-            df_dwh = df_dwh.fillna(np.nan).replace([np.nan], [None])
 
-            ######################################## Source Operations ################################################
+            self.df_dwh = self.create_db_if_not_exists(sql_select_query=dwh_select_query,
+                                                       sql_create_query=dwh_create_query,
+                                                       engine=dwh_engine)  # create the database if it does not exist | DWH
+            self.df_dwh = self.df_dwh.replace({np.nan: None})
 
-            ##################################### Change Operations ##################################################
-            if self.config_json['MODE'] == 'SCD':
+            if len(self.df_dwh) == 0 or self.config_json['MODE'] == 'INSERT':  # if the data warehouse table is empty
+                self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.df_source, engine=dwh_engine)
+
+                self.new_rows = self.df_source  # get values for job table
+
+                self.updates_rows = []  # get values for job table
+
+            else:
+
+                ##################################### Change Operations ###############################################
+
                 change_select_query, change_create_query = self.read_query(query_type='CHANGE_QUERY')
 
                 self.create_db_if_not_exists(sql_select_query=change_select_query, sql_create_query=change_create_query,
@@ -558,25 +715,22 @@ class DWH:
                 df_change = self.select_from_db(select_query=change_select_query, engine=dwh_engine)
 
                 change_table = self.dest_table(select_query=change_select_query)  # get the change table name
+
                 change_db_cols = self.table_columns(df_change)  # get the change table columns
 
-            ########################################## Insertions ###################################################
+                ########################################## Insertions #################################################
 
-            if len(df_dwh) == 0 or self.config_json['MODE'] == 'INSERT':  # if the data warehouse table is empty
-                self.insert_into_db(destination_table=dest_table_dwh, df_insert=df_source, engine=dwh_engine, mode=1)
-                self.new_rows = df_source  # get values for job table
-                self.updates_rows = []  # get values for job table
-
-            else:
                 scd_t2_columns = [x for x in self.config_json['SCD2'].split(",") if len(x) > 0] if len(
                     self.config_json['SCD2']) > 0 else []
+
                 scd_t1_columns = [x for x in self.config_json['SCD1'].split(",") if len(x) > 0] if len(
                     self.config_json['SCD1']) > 0 else []  # get all the scd type 1 columns
+
                 unique_columns = self.config_json['DWH_UNIQUE_ENTRIES'].split(",")  # get the primary key(s)
 
                 self.scd2_vals, self.new_rows, self.updates_rows = self.identify_rows(scd_type2_columns=scd_t2_columns,
                                                                                       scd_type1_columns=scd_t1_columns,
-                                                                                      dw_data_warehouse=df_dwh,
+                                                                                      dw_data_warehouse=self.df_dwh,
                                                                                       df_source_table=df_source,
                                                                                       change_db_cols=change_db_cols,
                                                                                       unique_pk=unique_columns)
@@ -586,16 +740,15 @@ class DWH:
                     self.update_records(destination_table=dest_table_dwh, update_entries=self.updates_rows,
                                         columns=list(self.updates_rows[0].keys()),
                                         primary_key=unique_columns,
-                                        engine=dwh_engine, mode=1)
+                                        engine=dwh_engine)
                 ##################################### Change ##########################################################
                 if len(self.scd2_vals) > 0:
-                    self.insert_into_db(destination_table=change_table, df_insert=self.scd2_vals, engine=dwh_engine,
-                                        first_insert=False, add_time_cols=False, mode=1)
+                    self.insert_into_db(destination_table=change_table, df_insert=self.scd2_vals,
+                                        engine=dwh_engine, add_time_cols=False)
 
                 ##################################### Insert ###########################################################
                 if len(self.new_rows) > 0:
-                    self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.new_rows, engine=dwh_engine,
-                                        first_insert=False, mode=1)
+                    self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.new_rows, engine=dwh_engine)
 
                 ###################################### Job ############################################################
 
@@ -610,55 +763,7 @@ class DWH:
                                     0, None, self.timestamp]], columns=job_columns[1:])
 
             self.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
-                                first_insert=False,
-                                add_time_cols=False, mode=2)
-
-            print("Successful")
-            print(f"Execution took: {round(time.time() - start_time, 2)}")
-
-        except (Exception,):
-            self.exception_handling()
-
-    def execute_plain_insert_source(self, df_source):
-        """
-        Performs database update with a given external source (Not Database) by using a plain insert (No SCD)
-        :return: None
-        """
-        start_time = time.time()
-
-        try:
-            ########################################## DWH Operations ################################################
-            dwh_engine = self.connect_to_db(server=self.config_json['DWH_SERVER'],
-                                            username=self.config_json['DWH_USERNAME'],
-                                            password=self.config_json['DWH_PASSWORD'],
-                                            database=self.config_json['DWH_DATABASE'])  # connect to database | DWH
-
-            dwh_select_query, dwh_create_query = self.read_query(
-                query_type='DWH_QUERY')  # select and create query | DWH
-            dest_table_dwh = self.dest_table(select_query=dwh_create_query)  # destination table DWH
-            self.create_db_if_not_exists(sql_select_query=dwh_select_query, sql_create_query=dwh_create_query,
-                                         engine=dwh_engine)  # create the database if it does not exist | DWH
-            ########################################## Insertions ###################################################
-
-            self.insert_into_db(destination_table=dest_table_dwh, df_insert=df_source, engine=dwh_engine, mode=1)
-            self.new_rows = df_source  # get values for job table
-            self.updates_rows = []  # get values for job table
-
-            ###################################### Job ############################################################
-
-            job_select_query, job_create_query = self.read_query(query_type='JOB_QUERY')
-
-            self.create_db_if_not_exists(sql_select_query=job_select_query, sql_create_query=job_create_query,
-                                         engine=dwh_engine)
-            df_job_q = self.select_from_db(select_query=job_select_query, engine=dwh_engine)
-            dest_table_job = self.dest_table(select_query=job_select_query)
-            job_columns = self.table_columns(df_job_q)
-            df_job = pd.DataFrame([[self.config_json['JOB_NAME'], len(self.new_rows), len(self.updates_rows),
-                                    0, None, self.timestamp]], columns=job_columns[1:])
-
-            self.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
-                                first_insert=False,
-                                add_time_cols=False, mode=2)
+                                add_time_cols=False)
 
             print("Successful")
             print(f"Execution took: {round(time.time() - start_time, 2)}")

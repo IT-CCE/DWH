@@ -12,6 +12,7 @@ from dwh_lib import DWH
 
 
 def get_data(url, mode=1):
+    all_data = []
     if mode==1:
         json_dicts = []
         dict_length = 1
@@ -34,7 +35,7 @@ def get_data(url, mode=1):
                     dict_length = 0
             page_nr += 1
 
-        all_data = []
+
         for dictionary in json_dicts:
             all_data.extend(dictionary['hits'])
     else:
@@ -230,7 +231,7 @@ if __name__ == '__main__':
                 df_source.loc[df_source['offer_id']==id,'department'] = json_data2['offer']['department']
 
 
-        df_source = df_source.fillna(np.nan).replace([np.nan], [None])
+        df_source = df_source.replace({np.nan: None})
         dwh.execute_source(df_source=df_source)
         print("Done")
     except Exception as e:
@@ -251,7 +252,6 @@ if __name__ == '__main__':
                               columns=job_columns[1:])
         # create entry for failed job
         dwh.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
-                           first_insert=False,
                            add_time_cols=False)  # insert the failure row
         print("Failed")
         print(f"Line Nr: {last_track_back[1]}\nLine: {last_track_back[3]}\n"

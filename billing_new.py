@@ -244,7 +244,7 @@ def calc_cost_3(x):
 
 df_infrastructure['Infrastructure_Cost'] = df_infrastructure.apply(calc_cost_3,axis=1)
 df_infrastructure = df_infrastructure.fillna(np.nan).replace([np.nan], [None])
-dwh_infra.execute_plain_insert_source(df_infrastructure)
+dwh_infra.execute_source(df_infrastructure)
 
 ################################################### Infra #############################################################
 print("DONE")
