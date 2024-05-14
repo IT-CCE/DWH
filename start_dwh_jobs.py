@@ -33,4 +33,6 @@ if __name__ == '__main__':
                 exit_code = subprocess.call(args['Executable'] + " " + args['Arguments'])
             elif args['Trigger'] == 'Stock' and (today.weekday() == 6 or today.day == calendar.monthrange(today.year, today.month)[1]):
                 exit_code = subprocess.call(args['Executable'] + " " + args['Arguments'])
+            elif args['Trigger'] == 'Last of Month' and (today.day == calendar.monthrange(today.year, today.month)[1]):
+                exit_code = subprocess.call(args['Executable'] + " " + args['Arguments'])
 

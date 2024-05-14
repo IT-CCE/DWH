@@ -2,11 +2,10 @@ import datetime
 import sys
 import time
 import traceback
-
+from bs4 import BeautifulSoup
 import numpy as np
 import pandas as pd
 import requests
-
 from dwh_lib import DWH
 
 
@@ -187,12 +186,18 @@ if __name__ == '__main__':
                 else:
                     notes = combined_note
 
+
+
+
                 applicant_copy.extend(
                     [disqualified, disqualified_at, disqualified_by, disqualified_by_name, disqualify_kind,
                      disqualify_reason,
                      hired_at, is_hired, job_start, offer_id, offer_title, offer_status, stage_id, stage_name,
                      source_name, source_id, tag_name, tag_id, talent_pool, notes])
                 applicants.append(applicant_copy)
+
+
+
 
         df_source = pd.DataFrame(applicants)
         df_source.columns = cols
@@ -218,20 +223,60 @@ if __name__ == '__main__':
         df_source['offer_notes'] = ""
         df_source['department'] = ""
 
+        # hires_per_recruiter = get_data(
+        #     "https://api.recruitee.com/c/78057/report/breakdown?metric=hires&primary_group=recruiter&date_range=last_30_days",
+        #     mode=2)
+
 
         offer_ids = list(df_source['offer_id'].unique())
         offer_ids.remove(0)
 
         for id in offer_ids:
+
             json_data = get_data(f"https://api.recruitee.com/c/78057/offers/{id}/notes", mode=2)
             if len(json_data['notes']) > 0:
-                df_source.loc[df_source['offer_id']==id,"offer_notes"] = "<br>".join([x["body_html"] for x in json_data['notes']])
+                try:
+                    text = BeautifulSoup("<br>".join([x["body_html"] for x in json_data['notes']]), "lxml").text
+                except Exception as e:
+                    text = "<br>".join([x["body_html"] for x in json_data['notes']])
+
+                df_source.loc[df_source['offer_id']==id,"offer_notes"] = text
             json_data2 = get_data(f"https://api.recruitee.com/c/78057/offers/{id}", mode=2)
             if 'department' in json_data2['offer']:
                 df_source.loc[df_source['offer_id']==id,'department'] = json_data2['offer']['department']
 
+            offer_info = get_data(f"https://api.recruitee.com/c/78057/offers/{id}", mode=2)
+            if offer_info['offer']['hiring_manager_id'] is not None:
+                hiring_manager = [x['first_name'] + " " + x['last_name'] for x in offer_info['offer']['admins'] if
+                                  x['id'] == offer_info['offer']['hiring_manager_id']][0]
+                df_source.loc[df_source['offer_id'] == id, "hiring_manager"] = hiring_manager
 
-        df_source = df_source.replace({np.nan: None})
+            if offer_info['offer']['adminapp_url'] is not None:
+                df_source.loc[df_source['offer_id'] == id, "adminapp_url"] = offer_info['offer']['adminapp_url']
+
+            published_conv = None
+            if offer_info['offer']['published_at'] is not None:
+                published_conv = offer_info['offer']['published_at']
+                df_source.loc[df_source['offer_id'] == id, 'job_published_at'] = published_conv
+
+            if offer_info['offer']['number_of_openings'] is not None:
+                df_source.loc[df_source['offer_id'] == id, 'number_of_openings'] = offer_info['offer']['number_of_openings']
+
+            if offer_info['offer']['recruiter_id'] is not None:
+                recruiter = [x['first_name'] + " " + x['last_name'] for x in offer_info['offer']['admins'] if x['id'] == offer_info['offer']['recruiter_id']][0]
+                df_source.loc[df_source['offer_id'] == id, 'recruiter'] = recruiter
+
+
+            # print(f"UPDATE [DWH].[masterdata].[recruiting] SET [hiring_manager] = '{hiring_manager}',"
+            #       f" [adminapp_url] = '{offer_info['offer']['adminapp_url']}',"
+            #       f" [job_published_at] = '{published_conv}',"
+            #       f" [number_of_openings] = {offer_info['offer']['number_of_openings']},"
+            #       f" [recruiter] = '{recruiter}' WHERE offer_id = {id}")
+
+        df_source['job_published_at'] = df_source['job_published_at'].replace({np.nan: None, pd.NA: None, pd.NaT:None})
+
+        df_source['job_published_at'] = df_source['job_published_at'].apply(
+            lambda x: datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%Y-%m-%d %H:%M:%S") if x is not None and not pd.isna(x) else None)
         dwh.execute_source(df_source=df_source)
         print("Done")
     except Exception as e:

@@ -105,7 +105,6 @@ if __name__ == '__main__':
         df_job = pd.DataFrame([["Check", len(duplicate_rows), 0, 0, None, timestamp]],
                               columns=job_columns[1:])  # create entry for job
         dwh.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
-                           first_insert=False,
                            add_time_cols=False)
         print("Successful")
 
@@ -125,6 +124,6 @@ if __name__ == '__main__':
         df_job = pd.DataFrame([["Check", -1, -1, -1, exception_string, dwh.timestamp]],
                               columns=job_columns[1:])
         # create entry for failed job
-        dwh.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine, first_insert=False,
+        dwh.insert_into_db(destination_table=dest_table_job, df_insert=df_job, engine=dwh_engine,
                            add_time_cols=False)
         print("Failure")

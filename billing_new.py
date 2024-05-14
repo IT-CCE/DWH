@@ -150,8 +150,8 @@ def calc_cost(x):
 
 
 df_license['LizenzKosten'] = df_license.apply(calc_cost,axis=1)
-
-dwh.execute_plain_insert_source(df_source=df_license)
+#df_license = df_license[df_license['LizenzKosten']>0]
+dwh.execute_source(df_source=df_license)
 
 
 ################################################### License ###########################################################
@@ -220,7 +220,7 @@ def calc_cost_2(x):
 
 
 all_devices['PcKosten'] = all_devices.apply(calc_cost_2,axis=1)
-dwh_pc.execute_plain_insert_source(df_source=all_devices)
+dwh_pc.execute_source(df_source=all_devices)
 
 ################################################### PC ################################################################
 ################################################### Infra #############################################################

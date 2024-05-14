@@ -38,11 +38,6 @@ class DWH:
         self.path = path
         self.read_jsons(self.path)
         self.type_scd2 = type_scd2
-        self.df_dwh = None
-        self.df_source = None
-        self.scd2_vals = None
-        self.new_rows = None
-        self.updates_rows = None
 
     def connect_to_db(self, server: str, username: str, password: str, database: str) -> Engine:
         """
@@ -130,13 +125,13 @@ class DWH:
         """
         Retrieves a SQL query or queries for the specified type from a stored JSON dictionary.
         Parameters:
-            - query_type (str): Type of the query, which must be one of 'SOURCE_QUERY', 'DWH_QUERY', or 'CHANGE_QUERY'.
+            - query_type (str): Type of the query, which must be one of 'SOURCE_QUERY', 'DWH_QUERY', 'JOB_QUERY' or 'CHANGE_QUERY'.
         Returns:
             - str: The specified query type from the JSON dictionary
         Raises:
             - KeyError: If Query type is not in present in the JSON file.
         """
-        if query_type not in ['SOURCE_QUERY','DWH_QUERY', 'CHANGE_QUERY']:
+        if query_type not in ['SOURCE_QUERY','DWH_QUERY', 'CHANGE_QUERY', 'JOB_QUERY']:
             raise KeyError(f"Query with type: {query_type} not found please use one of SOURCE_QUERY,DWH_QUERY, CHANGE_QUERY")
 
         query_dict = self.query_json[query_type]
@@ -306,7 +301,10 @@ class DWH:
                     filter_rows = reduce(lambda x, y: x & y, all_filters)  #
                     df_diff = scd.loc[filter_rows]
 
-                    if len(df_diff) != 2:
+                    if len(df_diff) != 2 or not (df_diff['valid_from'].tolist().count(None) == 1
+                                                  and len([x for x in df_diff['valid_from'].tolist()
+                                                           if isinstance(x,datetime.datetime)])==1):
+
                         primary_key_fail = ', '.join([f'{x}={y}' for x, y in zip(condition.index, condition)])
                         raise Exception(f"More than 2 Entries (Primary Key not unique: {primary_key_fail})")
 
@@ -447,6 +445,7 @@ class DWH:
         cursor = conn.cursor()
         try:
             cursor.executemany(sql, self.to_python_vals(values))
+            conn.commit()
         except Exception as e:
             conn.rollback()
             raise Exception(f"Could not insert Entries: {str(e)}")
@@ -487,12 +486,15 @@ class DWH:
         """
         try:
             df = self.select_from_db(sql_select_query, engine=engine)
-        except ProgrammingError as e:
-            conn = engine.raw_connection()
-            conn.cursor().execute(sql_create_query)
-            conn.commit()
-            conn.close()
-            df = self.select_from_db(sql_select_query, engine=engine)
+        except Exception as e:
+            try:
+                conn = engine.raw_connection()
+                conn.cursor().execute(sql_create_query)
+                conn.commit()
+                conn.close()
+                df = self.select_from_db(sql_select_query, engine=engine)
+            except Exception as e:
+                raise Exception(f"Could not Create Database {str(e)}")
 
         return df
 
@@ -698,9 +700,9 @@ class DWH:
             self.df_dwh = self.df_dwh.replace({np.nan: None})
 
             if len(self.df_dwh) == 0 or self.config_json['MODE'] == 'INSERT':  # if the data warehouse table is empty
-                self.insert_into_db(destination_table=dest_table_dwh, df_insert=self.df_source, engine=dwh_engine)
+                self.insert_into_db(destination_table=dest_table_dwh, df_insert=df_source, engine=dwh_engine)
 
-                self.new_rows = self.df_source  # get values for job table
+                self.new_rows = df_source  # get values for job table
 
                 self.updates_rows = []  # get values for job table
 
